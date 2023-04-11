@@ -1,0 +1,4 @@
+# .gitignore
+
+# Ignore models folder
+/models/
