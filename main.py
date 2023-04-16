@@ -11,6 +11,7 @@ sys.path.append("..")
 from segment_anything import sam_model_registry, SamPredictor
 import cv2
 import matplotlib.pyplot as plt
+from matplotlib.widgets  import RectangleSelector
 import numpy as np
 #keyboard input library
 sam_checkpoint = "models/sam_vit_b_01ec64.pth"
@@ -55,10 +56,16 @@ class MyApp(QtWidgets.QMainWindow, Ui_MainWindow):
         self.removeClass.clicked.connect(self.delete_class)
         self.startButton.clicked.connect(self.start)
         self.classWidget.itemClicked.connect(self.class_selected)
+        self.startBoxesButton.clicked.connect(self.start_boxes)
+        self.saveMaskButton.clicked.connect(self.save_mask)
+        self.boxes = np.array([])
+        self.boxes_masks = np.array([])
         self.input_point = np.array([])
         self.input_label = np.array([])
         self.this_mask = {}
         self.image = None
+        self.box_start_point = None
+        self.box_end_point = None
 
 
     def delete_class(self):
@@ -93,9 +100,138 @@ class MyApp(QtWidgets.QMainWindow, Ui_MainWindow):
                 #resize image to fit in label
                 pixmap = pixmap.scaled(self.maskLabel.width(), self.maskLabel.height(), QtCore.Qt.KeepAspectRatio)
                 self.maskLabel.setPixmap(pixmap)
+    
+    def save_mask(self):
+        #get selected class name if there is one
+        if self.classWidget.currentItem() == None:
+            #no class selected message box
+            QtWidgets.QMessageBox.about(self, "Error", "No class selected")
+            return
+        class_name = self.classWidget.currentItem().text()
+        if class_name == "":
+            #no class selected message box
+            QtWidgets.QMessageBox.about(self, "Error", "No class selected")
+            return
+        #select file to save mask to
+        file_name = QtWidgets.QFileDialog.getSaveFileName(self, "Save Mask", f"masks/{class_name}.png", "PNG (*.png)")
+        #save mask to file
+
+        cv2.imwrite(file_name[0], self.this_mask[class_name]*255)
+
+       
+
+    def start_boxes(self):
+        #get selected class name if there is one
+        if self.classWidget.count() == 0:
+            #no classes added message box
+            QtWidgets.QMessageBox.about(self, "Error", "No classes added")
+            return
+        if self.classWidget.currentItem() == None:
+            #no class selected message box
+            QtWidgets.QMessageBox.about(self, "Error", "No class selected")
+            return
+        class_name = self.classWidget.currentItem().text()
+        if class_name == "":
+            #no class selected message box
+            QtWidgets.QMessageBox.about(self, "Error", "No class selected")
+            return
+        #clear points
+        self.boxes = np.array([])
+        self.boxes_masks = np.array([])
+        plt.figure(figsize=(10,10))
+        plt.imshow(self.image)
+        #show_points(self.input_point, self.input_label, plt)
+        plt.axis('off')
+        #on key or mouse click
+        cid = plt.gcf().canvas.mpl_connect('button_press_event', self.box_start)
+        #on mouse release
+        cid = plt.gcf().canvas.mpl_connect('button_release_event', self.box_end)
+        #rs = RectangleSelector(plt.gca(), self.box_selected)
+
+        plt.show()
+    def box_start(self, eclick):
+        self.box_start_point = eclick
+        
+    def box_end(self, erelease):
+        self.box_end_point = erelease
+        self.box_selected(self.box_start_point, self.box_end_point)
+        
+
+
+    def box_selected(self, eclick, erelease):
+        #print(eclick.xdata, eclick.ydata, erelease.xdata, erelease.ydata)
+        box = np.array([[eclick.xdata, eclick.ydata, erelease.xdata, erelease.ydata]])
+        
+        #print(box)
+        #if right click
+        if eclick.button == 3:
+            #remove nearest box and its mask
+            if self.boxes.shape[0] > 0:
+                #get nearest box
+                nearest_box = np.argmin(np.linalg.norm(self.boxes - np.array([eclick.xdata, eclick.ydata, eclick.xdata, eclick.ydata]), axis=1))
+                #remove nearest box
+                self.boxes = np.delete(self.boxes, nearest_box, axis=0)
+                #remove nearest mask
+                self.boxes_masks = np.delete(self.boxes_masks, nearest_box, axis=0)
+        #if left click
+        elif eclick.button == 1:
+            if self.boxes.shape[0] == 0:
+                self.boxes = box
+            else:
+                self.boxes = np.vstack((self.boxes, box))
+        # predict boxes
+        masks,scores,logits = predictor.predict(
+                point_coords=None,
+                point_labels=None,
+                box=box,
+                multimask_output=False,
+            )
+        print(masks.shape)
+        # get mask with highest score
+        mask = masks[np.argmax(scores)]
+        #print(mask.shape)
+
+        # add mask to boxes_masks
+        if self.boxes_masks.shape[0] == 0:
+            self.boxes_masks = np.array([mask])
+            #add dimensions to mask
+            mask = np.expand_dims(mask, axis=0)
+        else:
+            self.boxes_masks = np.concatenate((self.boxes_masks, np.array([mask])), axis=0)
+
+        image =self.image.copy()
+        plt.cla()
+        plt.imshow(image)
+        
+        current_class = self.classWidget.currentItem().text()
+        #clear this_mask for current class
+        if current_class in self.this_mask.keys():
+            self.this_mask[current_class] = np.zeros(self.this_mask[current_class].shape)
 
 
 
+
+        # show all masks,and combine them to this_mask
+
+        for mask in self.boxes_masks:
+            #mask plot
+            show_mask(mask, plt.gca())
+            #print(mask.shape)
+            #combine masks
+            
+            if current_class in self.this_mask.keys():
+                self.this_mask[current_class] = np.logical_or(self.this_mask[current_class], mask)
+            else:
+                self.this_mask[current_class] = mask
+
+        for box_ in self.boxes :
+            #print(box_)
+            #box plot
+            show_box(box_, plt.gca())
+
+        #print(self.boxes_masks.shape)
+        plt.axis('off')
+        plt.draw()
 
     def start(self):
         #get selected class name if there is one

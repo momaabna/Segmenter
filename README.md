@@ -31,8 +31,8 @@ The Segmentation Tool is a graphical user interface (GUI) tool developed using P
 2. Add and delete classes as needed.
 3. Select the class that you want to segment and click "Start".
 4. In the opened window:
-   - Right-click to add points
-   - Left-click to remove points
+   - Right-click to add + points
+   - Left-click to add - points
    - Middle-click to delete the nearest point
 5. Once segmentation is complete, close the figure.
 6. Click on the class name in the list again to view the results.
